@@ -1490,8 +1490,15 @@ async function fetchSshConfig() {
     const data = await res.json()
     if (!res.ok) { setSshStatus('error', data.error || '오류 발생'); return }
     const forceDevice = device !== 'auto' ? parseInt(device) : null
+    const {portData, rawMaps} = parseGigamonConfig(data.config)
+    const portCount = Object.keys(portData).length
+    const mapCount  = rawMaps.length
+    if (portCount === 0 && mapCount === 0) {
+      setSshStatus('error', `파싱 결과 없음 — 수신 데이터 ${data.config.length}자. 장비 선택 확인`)
+      return
+    }
     applyGigamonConfig(data.config, forceDevice)
-    setSshStatus('success','컨피그 가져오기 완료!')
+    setSshStatus('success', `완료! 포트 ${portCount}개, MAP ${mapCount}개 적용`)
     setTimeout(() => closeSshModal(), 1500)
   } catch(e) {
     setSshStatus('error','server.py가 실행 중인지 확인해주세요.')

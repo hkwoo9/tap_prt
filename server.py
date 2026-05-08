@@ -22,30 +22,50 @@ def fetch_config():
     if not host or not username:
         return jsonify({'error': 'IP와 사용자명은 필수입니다.'}), 400
     try:
-        import paramiko, time
+        import paramiko, time, re
+
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(host, port=port, username=username, password=password,
                        timeout=15, look_for_keys=False, allow_agent=False)
 
-        shell = client.invoke_shell(width=512, height=50)
+        shell = client.invoke_shell(width=512, height=5000)
         time.sleep(1)
-        shell.recv(65535)          # discard login banner
+        while shell.recv_ready(): shell.recv(65535)   # discard banner
 
         shell.send('en\n')
         time.sleep(1)
-        shell.recv(65535)          # discard enable prompt/response
+        while shell.recv_ready(): shell.recv(65535)   # discard enable output
+
+        shell.send('terminal length 0\n')             # disable pager
+        time.sleep(0.5)
+        while shell.recv_ready(): shell.recv(65535)
 
         shell.send('show running-config\n')
-        time.sleep(3)
 
-        chunks = []
-        while shell.recv_ready():
-            chunks.append(shell.recv(65535).decode('utf-8', errors='replace'))
-            time.sleep(0.3)
+        buf = ''
+        deadline = time.time() + 20                   # max 20 s
+        while time.time() < deadline:
+            if shell.recv_ready():
+                chunk = shell.recv(65535).decode('utf-8', errors='replace')
+                buf += chunk
+                if re.search(r'--[Mm]ore--', chunk):
+                    shell.send(' ')                   # page through if pager still active
+                    time.sleep(0.3)
+            else:
+                # stop once we see the enable prompt (#) at end of output
+                if buf and re.search(r'#\s*$', buf.rstrip()):
+                    break
+                time.sleep(0.3)
 
         client.close()
-        return jsonify({'config': ''.join(chunks)})
+
+        # strip ANSI escape codes and carriage returns
+        clean = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', buf)
+        clean = re.sub(r'--[Mm]ore--[^\r\n]*', '', clean)
+        clean = clean.replace('\r\n', '\n').replace('\r', '\n')
+
+        return jsonify({'config': clean})
     except ImportError:
         return jsonify({'error': 'paramiko 미설치: pip install paramiko'}), 500
     except Exception as e:
