@@ -26,43 +26,56 @@ def fetch_config():
     try:
         import paramiko, time, re
 
+        def recv_until(shell, pattern, timeout=15):
+            """프롬프트 패턴이 나올 때까지 수신"""
+            buf = ''
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                if shell.recv_ready():
+                    buf += shell.recv(65535).decode('utf-8', errors='replace')
+                    if re.search(pattern, buf):
+                        return buf
+                else:
+                    time.sleep(0.1)
+            return buf
+
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(host, port=port, username=username, password=password,
                        timeout=15, look_for_keys=False, allow_agent=False)
 
         shell = client.invoke_shell(width=512, height=5000)
-        time.sleep(1)
-        while shell.recv_ready(): shell.recv(65535)   # discard banner
 
+        # 로그인 후 > 또는 # 프롬프트 대기
+        recv_until(shell, r'[>#]')
+
+        # user EXEC(>) 이면 enable 진입
         shell.send('en\n')
-        time.sleep(1)
-        while shell.recv_ready(): shell.recv(65535)   # discard enable output
+        recv_until(shell, r'#')          # # 프롬프트 올 때까지 대기
 
-        shell.send('terminal length 0\n')             # disable pager
-        time.sleep(0.5)
-        while shell.recv_ready(): shell.recv(65535)
+        shell.send('terminal length 0\n')
+        recv_until(shell, r'#')
 
         shell.send('show running-config\n')
 
+        # config 수신 — 마지막 줄에 # 프롬프트 다시 나올 때까지
         buf = ''
-        deadline = time.time() + 20                   # max 20 s
+        deadline = time.time() + 30
         while time.time() < deadline:
             if shell.recv_ready():
                 chunk = shell.recv(65535).decode('utf-8', errors='replace')
                 buf += chunk
                 if re.search(r'--[Mm]ore--', chunk):
-                    shell.send(' ')                   # page through if pager still active
-                    time.sleep(0.3)
-            else:
-                # stop once we see the enable prompt (#) at end of output
-                if buf and re.search(r'#\s*$', buf.rstrip()):
+                    shell.send(' ')
+                    time.sleep(0.1)
+                # show running-config 결과가 어느 정도 쌓인 뒤 # 프롬프트 확인
+                elif len(buf) > 200 and re.search(r'#\s*$', buf.rstrip()):
                     break
-                time.sleep(0.3)
+            else:
+                time.sleep(0.1)
 
         client.close()
 
-        # strip ANSI escape codes and carriage returns
         clean = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', buf)
         clean = re.sub(r'--[Mm]ore--[^\r\n]*', '', clean)
         clean = clean.replace('\r\n', '\n').replace('\r', '\n')
