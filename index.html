@@ -196,6 +196,50 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:#1e293b}
 ::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}
+
+/* ── Stats device cards ── */
+.stat-devices-row{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.stat-device-card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px 14px;flex:1;min-width:200px}
+.sdc-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #334155}
+.sdc-name{font-size:14px;font-weight:700;color:#60a5fa}
+.sdc-meta{font-size:10px;color:#64748b}
+.sdc-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:5px}
+.sdc-lbl{color:#64748b;width:58px;flex-shrink:0;font-size:11px}
+.sdc-val{font-weight:600;color:#e2e8f0}
+.sdc-breakdown{display:flex;gap:5px;font-size:11px}
+.sdc-rule-header{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}
+.sdc-remain{margin-left:auto;font-size:11px}
+.rule-bar-bg{background:#0f172a;border-radius:3px;height:5px;overflow:hidden}
+.rule-bar-fill{height:100%;border-radius:3px;transition:width .4s}
+.stat-map-card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:80px}
+.stat-map-num{font-size:26px;font-weight:700;color:#60a5fa}
+.stat-map-lbl{font-size:10px;color:#64748b;margin-top:2px}
+
+/* ── MAP Flow Panel ── */
+#map-flow-panel{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:20px;display:none}
+.flow-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #334155}
+.flow-header h3{font-size:14px;color:#e2e8f0;flex:1;margin:0}
+.flow-body{display:flex;gap:16px;align-items:flex-start}
+.flow-col{flex:1}
+.flow-col-title{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.flow-port-list{display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto}
+.flow-port-item{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#0f172a;border-radius:4px;font-size:12px}
+.fpi-id{font-family:monospace;font-weight:700;min-width:34px;padding:1px 4px;border-radius:3px;border:1px solid transparent;font-size:11px}
+.fpi-type{font-size:9px;padding:1px 5px;border-radius:99px;font-weight:700}
+.fpi-label{color:#64748b;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow-arrow-col{display:flex;align-items:center;justify-content:center;font-size:32px;color:#475569;padding:0 4px;align-self:center;flex-shrink:0}
+.flow-rules-block{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
+.flow-rules-title{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.flow-rules-pre{font-size:11px;color:#94a3b8;font-family:monospace;background:#0f172a;padding:8px 10px;border-radius:5px;max-height:160px;overflow-y:auto;white-space:pre-wrap;margin:0}
+
+/* ── Map table scroll ── */
+.map-table-wrap{max-height:340px;overflow-y:auto;border-radius:6px}
+.map-table thead th{position:sticky;top:0;z-index:2;background:#0f172a}
+
+/* ── SSH Modal ── */
+#ssh-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;display:none;align-items:center;justify-content:center}
+#ssh-overlay.open{display:flex}
+.ssh-status{padding:7px 12px;border-radius:6px;font-size:12px;margin-top:8px;display:none}
 </style>
 </head>
 <body>
@@ -240,6 +284,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
     <h1>GIGAMON TAP 도식화</h1>
     <div class="btn-group">
       <button class="btn btn-primary" onclick="openPasteModal()">📋 컨피그 붙여넣기</button>
+      <button class="btn" onclick="openSshModal()">🔌 SSH 연결</button>
       <div class="sep"></div>
       <button class="btn" onclick="exportJSON()">💾 JSON 저장</button>
       <label class="btn" style="cursor:pointer">📂 JSON 열기<input type="file" accept=".json" onchange="importJSON(event)" style="display:none"></label>
@@ -279,12 +324,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
     <div id="dev2-card" class="device-card"></div>
   </div>
 
+  <!-- MAP 흐름 패널 -->
+  <div id="map-flow-panel"></div>
+
   <div id="maps-panel">
     <div class="maps-header">
       <h2>MAP 설정 현황</h2>
       <button class="btn btn-primary" onclick="openMapModal('add')">＋ MAP 추가</button>
     </div>
-    <table class="map-table">
+    <div class="map-table-wrap"><table class="map-table">
       <thead>
         <tr>
           <th>MAP 이름</th>
@@ -297,7 +345,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
         </tr>
       </thead>
       <tbody id="map-tbody"></tbody>
-    </table>
+    </table></div>
     <div id="no-maps-msg" class="no-maps" style="display:none">MAP이 없습니다. 위 버튼으로 추가해주세요.</div>
   </div>
 </div>
@@ -370,6 +418,50 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
   </div>
 </div>
 
+<!-- SSH Modal -->
+<div id="ssh-overlay" onclick="closeSshIfBg(event)">
+  <div class="modal">
+    <h2>🔌 SSH 연결 — TAP 컨피그 가져오기</h2>
+    <p class="paste-desc" style="margin-bottom:14px">
+      장비에 SSH 접속하여 <code>show running-config</code>를 실행합니다.<br>
+      <strong>server.py 실행 중일 때만 동작합니다.</strong>
+    </p>
+    <div class="form-row">
+      <div class="form-group" style="flex:3">
+        <label>TAP IP 주소</label>
+        <input type="text" id="ssh-host" placeholder="192.168.1.100">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>SSH 포트</label>
+        <input type="number" id="ssh-port" value="22">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>사용자명</label>
+        <input type="text" id="ssh-username" placeholder="admin" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>비밀번호</label>
+        <input type="password" id="ssh-password" autocomplete="current-password">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>장비 지정</label>
+      <select id="ssh-device">
+        <option value="auto">자동 (box_id 기준)</option>
+        <option value="1">TAP #1 로 적용</option>
+        <option value="2">TAP #2 로 적용</option>
+      </select>
+    </div>
+    <div id="ssh-status" class="ssh-status"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeSshModal()">취소</button>
+      <button class="btn btn-primary" id="ssh-btn" onclick="fetchSshConfig()">연결 및 가져오기</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ════════════════════════════════════════════════
 // DEFAULT CONFIG
@@ -425,6 +517,7 @@ let ppState = null  // {deviceId, portNum}
 let modalMode = 'add'
 let editMapId = null
 let expandedMapRules = new Set()
+const STORAGE_KEY = 'tap_config_v1'
 
 // MAP color palette for SVG lines
 const MAP_COLORS = ['#60a5fa','#4ade80','#f59e0b','#f87171','#c084fc','#34d399','#fb923c']
@@ -456,28 +549,64 @@ function render() {
   renderStats()
   renderDevices()
   renderMapTable()
+  renderFlowPanel()
   setTimeout(renderLines, 60)
+  saveToLocal()
 }
 
 function renderStats() {
-  let n=0,t=0,h=0
-  config.devices.forEach(dev => {
+  const devCards = config.devices.map(dev => {
+    let n=0, t=0, h=0, u=0
     for (let p = 1; p <= totalPorts(dev); p++) {
       const tp = getPortType(dev.id, p)
-      if(tp==='N') n++; else if(tp==='T') t++; else if(tp==='H') h++
+      if(tp==='N') n++; else if(tp==='T') t++; else if(tp==='H') h++; else u++
     }
+    const ruleCount = config.maps
+      .filter(m => m.device === dev.id)
+      .reduce((sum, m) => sum + (m.rules||'').split('\n').filter(r=>r.trim()).length, 0)
+    const MAX_RULES = 256
+    const remaining = MAX_RULES - ruleCount
+    const pct = Math.min((ruleCount / MAX_RULES) * 100, 100)
+    const barColor = pct > 80 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#22c55e'
+    const remainColor = remaining < 50 ? '#f87171' : remaining < 100 ? '#fcd34d' : '#64748b'
+    return `<div class="stat-device-card">
+      <div class="sdc-header">
+        <span class="sdc-name">${dev.name}</span>
+        <span class="sdc-meta">1/10G×${dev.ports_1g} &nbsp; 40G×${dev.ports_40g} &nbsp; 총 ${totalPorts(dev)}포트</span>
+      </div>
+      <div class="sdc-row">
+        <span class="sdc-lbl">사용 중</span>
+        <span class="sdc-val">${n+t+h}포트</span>
+        <span class="sdc-breakdown">
+          <span style="color:#60a5fa">N:${n}</span>
+          <span style="color:#22c55e">T:${t}</span>
+          <span style="color:#f59e0b">H:${h}</span>
+        </span>
+      </div>
+      <div class="sdc-row">
+        <span class="sdc-lbl">유휴 포트</span>
+        <span class="sdc-val" style="color:${u===0?'#22c55e':'#94a3b8'}">${u}포트</span>
+      </div>
+      <div style="margin-top:6px">
+        <div class="sdc-rule-header">
+          <span class="sdc-lbl">규칙 사용</span>
+          <span class="sdc-val">${ruleCount} / ${MAX_RULES}</span>
+          <span class="sdc-remain" style="color:${remainColor}">잔여 ${remaining}</span>
+        </div>
+        <div class="rule-bar-bg">
+          <div class="rule-bar-fill" style="width:${pct}%;background:${barColor}"></div>
+        </div>
+      </div>
+    </div>`
   })
-  const t1g = config.devices.reduce((s,d)=>s+d.ports_1g,0)
-  const t40g = config.devices.reduce((s,d)=>s+d.ports_40g,0)
   document.getElementById('stats').innerHTML = `
-    <div class="stat-card"><div class="stat-num">${config.devices.length}</div><div class="stat-label">TAP 장비</div></div>
-    <div class="stat-card"><div class="stat-num">${t1g}</div><div class="stat-label">1/10G 포트</div></div>
-    <div class="stat-card"><div class="stat-num">${t40g}</div><div class="stat-label">40G 포트</div></div>
-    <div class="stat-card"><div class="stat-num" style="color:#60a5fa">${n}</div><div class="stat-label">Network</div></div>
-    <div class="stat-card"><div class="stat-num" style="color:#22c55e">${t}</div><div class="stat-label">Tool</div></div>
-    <div class="stat-card"><div class="stat-num" style="color:#f59e0b">${h}</div><div class="stat-label">Hybrid</div></div>
-    <div class="stat-card"><div class="stat-num">${config.maps.length}</div><div class="stat-label">MAP</div></div>
-  `
+    <div class="stat-devices-row">
+      ${devCards.join('')}
+      <div class="stat-map-card">
+        <div class="stat-map-num">${config.maps.length}</div>
+        <div class="stat-map-lbl">MAP</div>
+      </div>
+    </div>`
 }
 
 function renderDevices() {
@@ -697,6 +826,7 @@ function selectMap(id) {
   activeMapId = (activeMapId === id) ? null : id
   renderDevices()
   renderMapTable()
+  renderFlowPanel()
   renderLines()
 }
 
@@ -1250,8 +1380,143 @@ function download(blob, filename) {
 }
 
 // ════════════════════════════════════════════════
+// LOCAL STORAGE
+// ════════════════════════════════════════════════
+function saveToLocal() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)) } catch(e) {}
+}
+function loadFromLocal() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY)
+    if (!s) return false
+    const d = JSON.parse(s)
+    if (!d.devices || !d.maps) return false
+    config = d
+    nextMapId = Math.max(...config.maps.map(m=>m.id), 0) + 1
+    return true
+  } catch(e) { return false }
+}
+
+// ════════════════════════════════════════════════
+// MAP FLOW PANEL
+// ════════════════════════════════════════════════
+function renderFlowPanel() {
+  const panel = document.getElementById('map-flow-panel')
+  if (!activeMapId) { panel.style.display = 'none'; return }
+  const map = config.maps.find(m => m.id === activeMapId)
+  if (!map) { panel.style.display = 'none'; return }
+
+  const dev = config.devices.find(d => d.id === map.device)
+  const color = MAP_COLORS[config.maps.indexOf(map) % MAP_COLORS.length]
+
+  const portItem = pn => {
+    const pd = getPortData(map.device, pn)
+    const dispId = (dev && pn > dev.ports_1g) ? `q${pn - dev.ports_1g}` : `x${pn}`
+    const typeColors = {
+      N:{bg:'#1e3a8a',fg:'#93c5fd',label:'Network'},
+      T:{bg:'#14532d',fg:'#86efac',label:'Tool'},
+      H:{bg:'#78350f',fg:'#fcd34d',label:'Hybrid'},
+      U:{bg:'#162032',fg:'#475569',label:'미사용'}
+    }
+    const tc = typeColors[pd.type] || typeColors.U
+    return `<div class="flow-port-item">
+      <span class="fpi-id" style="background:${tc.bg};color:${tc.fg};border-color:${tc.fg}">${dispId}</span>
+      <span class="fpi-type" style="background:${tc.bg};color:${tc.fg}">${tc.label}</span>
+      ${pd.label ? `<span class="fpi-label">${pd.label}</span>` : ''}
+    </div>`
+  }
+
+  const ruleLines = (map.rules||'').split('\n').filter(r=>r.trim())
+  const rulesHtml = ruleLines.length
+    ? `<div class="flow-rules-block">
+         <div class="flow-rules-title">규칙 (${ruleLines.length}개)</div>
+         <pre class="flow-rules-pre">${escHtml(ruleLines.join('\n'))}</pre>
+       </div>` : ''
+
+  panel.style.display = 'block'
+  panel.innerHTML = `
+    <div class="flow-header">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color}"></span>
+      <h3>${map.name}</h3>
+      <span class="badge badge-${map.mapType}">${map.mapType==='passall'?'Pass All':'Rule'}</span>
+      <span style="font-size:12px;color:#64748b">TAP #${map.device}</span>
+      <button class="btn btn-sm" style="margin-left:auto" onclick="selectMap(${map.id})">✕ 닫기</button>
+    </div>
+    <div class="flow-body">
+      <div class="flow-col">
+        <div class="flow-col-title">Source (${map.src.length}포트)</div>
+        <div class="flow-port-list">${map.src.map(portItem).join('')}</div>
+      </div>
+      <div class="flow-arrow-col">→</div>
+      <div class="flow-col">
+        <div class="flow-col-title">Destination (${map.dst.length}포트)</div>
+        <div class="flow-port-list">${map.dst.map(portItem).join('')}</div>
+      </div>
+    </div>
+    ${rulesHtml}`
+}
+
+// ════════════════════════════════════════════════
+// SSH MODAL
+// ════════════════════════════════════════════════
+function openSshModal() {
+  document.getElementById('ssh-overlay').classList.add('open')
+}
+function closeSshModal() {
+  document.getElementById('ssh-overlay').classList.remove('open')
+  const s = document.getElementById('ssh-status')
+  s.style.display = 'none'
+}
+function closeSshIfBg(e) {
+  if (e.target === document.getElementById('ssh-overlay')) closeSshModal()
+}
+
+async function fetchSshConfig() {
+  const host     = document.getElementById('ssh-host').value.trim()
+  const port     = parseInt(document.getElementById('ssh-port').value) || 22
+  const username = document.getElementById('ssh-username').value.trim()
+  const password = document.getElementById('ssh-password').value
+  const device   = document.getElementById('ssh-device').value
+  if (!host || !username) { setSshStatus('error','IP 주소와 사용자명을 입력해주세요.'); return }
+  const btn = document.getElementById('ssh-btn')
+  btn.disabled = true
+  setSshStatus('loading','연결 중...')
+  try {
+    const res = await fetch('/api/fetch-config', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host, port, username, password})
+    })
+    const data = await res.json()
+    if (!res.ok) { setSshStatus('error', data.error || '오류 발생'); return }
+    const forceDevice = device !== 'auto' ? parseInt(device) : null
+    applyGigamonConfig(data.config, forceDevice)
+    setSshStatus('success','컨피그 가져오기 완료!')
+    setTimeout(() => closeSshModal(), 1500)
+  } catch(e) {
+    setSshStatus('error','server.py가 실행 중인지 확인해주세요.')
+  } finally {
+    btn.disabled = false
+  }
+}
+
+function setSshStatus(type, msg) {
+  const el = document.getElementById('ssh-status')
+  el.style.display = 'block'
+  const styles = {
+    loading:{bg:'#1a2035',color:'#94a3b8',border:'#334155',prefix:'⟳ '},
+    error:  {bg:'#2d1515',color:'#f87171',border:'#7f1d1d',prefix:'✕ '},
+    success:{bg:'#0f2d1a',color:'#4ade80',border:'#166534',prefix:'✓ '}
+  }
+  const s = styles[type] || styles.loading
+  el.style.cssText += `;background:${s.bg};color:${s.color};border:1px solid ${s.border};padding:7px 12px;border-radius:6px;font-size:12px`
+  el.textContent = s.prefix + msg
+}
+
+// ════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════
+loadFromLocal()
 render()
 </script>
 </body>
