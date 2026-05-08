@@ -30,7 +30,7 @@ echo [3/3] 완료!
 echo ============================================
 echo  생성된 파일: tap_prt_update.bundle
 echo.
-echo  이 파일만 VDI의 tap_prt\ 폴더에 복사 후
+echo  이 파일을 VDI의 bundle_import.bat 과 같은 폴더에 복사 후
 echo  bundle_import.bat 실행하세요.
 echo ============================================
 goto SHOW_LOG

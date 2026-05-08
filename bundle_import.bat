@@ -20,6 +20,7 @@ echo.
 echo 패키지 설치 중...
 cd tap_prt
 pip install -r requirements.txt -q
+if %errorlevel% neq 0 goto ERROR
 cd ..
 
 del tap_prt_full.bundle
@@ -48,6 +49,7 @@ git fetch ..\tap_prt_update.bundle main
 if %errorlevel% neq 0 goto ERROR
 
 git reset --hard FETCH_HEAD
+if %errorlevel% neq 0 goto ERROR
 cd ..
 del tap_prt_update.bundle
 
