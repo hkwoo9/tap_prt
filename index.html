@@ -1158,18 +1158,22 @@ function parseGigamonConfig(text) {
       i++; continue
     }
 
-    // map alias NAME ... exit
-    m = line.match(/^map\s+alias\s+(.+)/i)
+    // map alias / map-passall alias / map-scollector alias ... exit
+    m = line.match(/^(map(?:-passall|-scollector)?)\s+alias\s+(.+)/i)
     if (m) {
-      const mapObj = {name: m[1].trim(), mapType:'passAll', from:[], to:[], rules:[]}
+      const keyword = m[1].toLowerCase()
+      const mapObj = {name: m[2].trim(), mapType: keyword === 'map' ? 'passAll' : 'passAll', from:[], to:[], rules:[]}
       i++
       while (i < lines.length) {
         const ml = lines[i].trim()
         if (/^exit$/i.test(ml)) { i++; break }
 
         let mm
-        mm = ml.match(/^type\s+regular\s+(byRule|passAll)/i)
-        if (mm) { mapObj.mapType = /byrule/i.test(mm[1]) ? 'rule' : 'passAll'; i++; continue }
+        mm = ml.match(/^type\s+\S+\s+(byRule)/i)
+        if (mm) { mapObj.mapType = 'rule'; i++; continue }
+
+        mm = ml.match(/^type\s+/i)
+        if (mm) { mapObj.mapType = 'passAll'; i++; continue }
 
         mm = ml.match(/^from\s+(.+)/i)
         if (mm) { mapObj.from = mm[1].trim().split(/\s+/); i++; continue }
