@@ -166,6 +166,32 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 .drag-msg p{font-size:20px;color:#60a5fa;margin-bottom:6px}
 .drag-msg span{font-size:13px;color:#64748b}
 
+/* ── Rule expand ── */
+.rule-count-btn{padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;
+  background:#1e293b;border:1px solid #475569;color:#94a3b8;cursor:pointer;transition:all .12s}
+.rule-count-btn:hover{background:#334155;color:#e2e8f0}
+.rule-expand-row td{padding:0 !important;border:none !important}
+.rule-block{margin:0;padding:8px 14px 10px 24px;font-size:11px;font-family:monospace;
+  color:#94a3b8;background:#0a1628;border-bottom:1px solid #172032;
+  white-space:pre-wrap;word-break:break-all;max-height:180px;overflow-y:auto;line-height:1.6}
+
+/* ── Paste Config Modal ── */
+#paste-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:400;
+  display:none;align-items:center;justify-content:center}
+#paste-overlay.open{display:flex}
+.paste-modal{background:#1e293b;border:1px solid #475569;border-radius:14px;
+  padding:24px;width:680px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;gap:12px}
+.paste-modal h2{font-size:15px;color:#60a5fa}
+.paste-desc{font-size:12px;color:#64748b;line-height:1.6}
+.paste-desc code{background:#0f172a;border:1px solid #334155;padding:1px 6px;border-radius:4px;color:#93c5fd}
+#paste-textarea{flex:1;min-height:280px;resize:vertical;background:#0f172a;border:1px solid #334155;
+  color:#e2e8f0;padding:10px 12px;border-radius:6px;font-family:monospace;font-size:11px;line-height:1.5}
+#paste-textarea:focus{outline:none;border-color:#3b82f6}
+.paste-footer{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.device-target{display:flex;align-items:center;gap:10px;font-size:12px;color:#94a3b8}
+.device-target label{display:flex;align-items:center;gap:4px;cursor:pointer}
+.device-target input[type=radio]{accent-color:#3b82f6}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:#1e293b}
@@ -175,6 +201,30 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 <body>
 
 <svg id="svg-lines"></svg>
+
+<!-- Paste Config Modal -->
+<div id="paste-overlay" onclick="closePasteIfBg(event)">
+  <div class="paste-modal">
+    <h2>Gigamon 컨피그 붙여넣기</h2>
+    <p class="paste-desc">
+      장비에서 <code>show running-config</code> 실행 후 전체 출력을 붙여넣으세요.<br>
+      <code>port</code>와 <code>map</code> 설정만 자동으로 추출됩니다. 장비 2대 컨피그를 한 번에 붙여넣어도 됩니다.
+    </p>
+    <textarea id="paste-textarea" placeholder="여기에 show running-config 출력을 붙여넣으세요..."></textarea>
+    <div class="paste-footer">
+      <div class="device-target">
+        <span>장비 지정:</span>
+        <label><input type="radio" name="devtarget" value="auto" checked> 자동 (box_id 기준)</label>
+        <label><input type="radio" name="devtarget" value="1"> TAP #1 로 적용</label>
+        <label><input type="radio" name="devtarget" value="2"> TAP #2 로 적용</label>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="closePasteModal()">취소</button>
+        <button class="btn btn-primary" onclick="applyPasteConfig()">적용</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Drag & Drop overlay -->
 <div id="drag-overlay">
@@ -189,7 +239,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
   <div id="header">
     <h1>GIGAMON TAP 도식화</h1>
     <div class="btn-group">
-      <button class="btn btn-primary" onclick="exportJSON()">💾 JSON 저장</button>
+      <button class="btn btn-primary" onclick="openPasteModal()">📋 컨피그 붙여넣기</button>
+      <div class="sep"></div>
+      <button class="btn" onclick="exportJSON()">💾 JSON 저장</button>
       <label class="btn" style="cursor:pointer">📂 JSON 열기<input type="file" accept=".json" onchange="importJSON(event)" style="display:none"></label>
       <div class="sep"></div>
       <button class="btn btn-success" onclick="exportCSV()">📊 Excel 내보내기</button>
@@ -372,6 +424,7 @@ let nextMapId = 6
 let ppState = null  // {deviceId, portNum}
 let modalMode = 'add'
 let editMapId = null
+let expandedMapRules = new Set()
 
 // MAP color palette for SVG lines
 const MAP_COLORS = ['#60a5fa','#4ade80','#f59e0b','#f87171','#c084fc','#34d399','#fb923c']
@@ -433,18 +486,22 @@ function renderDevices() {
     const activeSrc = (activeMap && activeMap.device === dev.id) ? new Set(activeMap.src) : new Set()
     const activeDst = (activeMap && activeMap.device === dev.id) ? new Set(activeMap.dst) : new Set()
 
+    const portDisplayId = (pn, is40g) => is40g ? `q${pn - dev.ports_1g}` : `x${pn}`
+    const gigaId = (pn, is40g) => `${dev.id}/1/${portDisplayId(pn, is40g)}`
+
     const makePorts = (start, count, is40g) =>
       Array.from({length: count}, (_, i) => {
         const pn = start + i
         const pd = getPortData(dev.id, pn)
         const hi = activeSrc.has(pn) ? ' src-hi' : activeDst.has(pn) ? ' dst-hi' : ''
         const sizeC = is40g ? ' is-40g' : ''
-        const tip = `Port ${pn}${pd.label ? ': '+pd.label : ''} | ${typeNames(pd.type)}`
+        const dispId = portDisplayId(pn, is40g)
+        const tip = `${gigaId(pn, is40g)}${pd.label ? '  (' + pd.label + ')' : ''} | ${typeNames(pd.type)}`
         return `<div id="port-dev${dev.id}-${pn}"
           class="port port-${pd.type}${sizeC}${hi}"
           title="${tip}"
           onclick="onPortClick(${dev.id},${pn},event)"
-        >${pn}</div>`
+        >${dispId}</div>`
       }).join('')
 
     document.getElementById(`dev${dev.id}-card`).innerHTML = `
@@ -453,11 +510,11 @@ function renderDevices() {
         <span class="device-meta">1/10G × ${dev.ports_1g} &nbsp;|&nbsp; 40G × ${dev.ports_40g}</span>
       </div>
       <div class="port-section">
-        <div class="port-section-title">1/10G 포트 (1 – ${dev.ports_1g})</div>
+        <div class="port-section-title">1/10G 포트 (x1 – x${dev.ports_1g})</div>
         <div class="port-grid">${makePorts(1, dev.ports_1g, false)}</div>
       </div>
       <div class="port-section">
-        <div class="port-section-title">40G 포트 (${dev.ports_1g+1} – ${dev.ports_1g+dev.ports_40g})</div>
+        <div class="port-section-title">40G 포트 (q1 – q${dev.ports_40g})</div>
         <div class="port-grid">${makePorts(dev.ports_1g+1, dev.ports_40g, true)}</div>
       </div>
     `
@@ -474,34 +531,59 @@ function renderMapTable() {
   tbody.innerHTML = config.maps.map((m, idx) => {
     const color = MAP_COLORS[idx % MAP_COLORS.length]
     const isActive = m.id === activeMapId
+    const dev = config.devices.find(d => d.id === m.device)
+    const ruleLines = (m.rules || '').split('\n').filter(r => r.trim())
+    const isExpanded = expandedMapRules.has(m.id)
+
+    const ruleCell = ruleLines.length > 0
+      ? `<button class="rule-count-btn" onclick="toggleRules(${m.id},event)">${ruleLines.length}개 규칙 ${isExpanded ? '▲' : '▾'}</button>`
+      : `<span style="color:#475569;font-size:11px">—</span>`
+
+    const expandRow = (isExpanded && ruleLines.length > 0)
+      ? `<tr class="rule-expand-row"><td colspan="7"><pre class="rule-block">${escHtml(ruleLines.join('\n'))}</pre></td></tr>`
+      : ''
+
     return `<tr class="${isActive ? 'active-row' : ''}" onclick="selectMap(${m.id})">
       <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px"></span><strong>${m.name}</strong></td>
       <td>TAP #${m.device}</td>
-      <td style="font-family:monospace;font-size:11px">${formatPorts(m.src)}</td>
-      <td style="font-family:monospace;font-size:11px">${formatPorts(m.dst)}</td>
+      <td style="font-family:monospace;font-size:11px">${formatPorts(m.src, dev)}</td>
+      <td style="font-family:monospace;font-size:11px">${formatPorts(m.dst, dev)}</td>
       <td><span class="badge badge-${m.mapType}">${m.mapType === 'passall' ? 'Pass All' : 'Rule'}</span></td>
-      <td style="font-size:11px;color:#94a3b8">${m.rules || '—'}</td>
+      <td>${ruleCell}</td>
       <td>
         <div class="action-btns" onclick="event.stopPropagation()">
           <button class="btn btn-sm" onclick="openMapModal('edit',${m.id})">편집</button>
           <button class="btn btn-sm btn-danger" onclick="deleteMap(${m.id})">삭제</button>
         </div>
       </td>
-    </tr>`
+    </tr>${expandRow}`
   }).join('')
 }
 
-function formatPorts(arr) {
+function toggleRules(id, event) {
+  event.stopPropagation()
+  expandedMapRules.has(id) ? expandedMapRules.delete(id) : expandedMapRules.add(id)
+  renderMapTable()
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+function formatPorts(arr, dev) {
   if (!arr || !arr.length) return '—'
-  // Compress to ranges: e.g. [1,2,3,5,6] → "1-3, 5-6"
+  const disp = (n) => {
+    if (!dev) return `x${n}`
+    return n > dev.ports_1g ? `q${n - dev.ports_1g}` : `x${n}`
+  }
   const sorted = [...arr].sort((a,b)=>a-b)
   const ranges = []
   let start = sorted[0], end = sorted[0]
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i] === end + 1) { end = sorted[i] }
-    else { ranges.push(start === end ? String(start) : `${start}-${end}`); start = end = sorted[i] }
+    else { ranges.push(start === end ? disp(start) : `${disp(start)}-${disp(end)}`); start = end = sorted[i] }
   }
-  ranges.push(start === end ? String(start) : `${start}-${end}`)
+  ranges.push(start === end ? disp(start) : `${disp(start)}-${disp(end)}`)
   return ranges.join(', ')
 }
 
@@ -633,7 +715,9 @@ function onPortClick(deviceId, portNum, event) {
 
   // Update popup content
   const pd = getPortData(deviceId, portNum)
-  document.getElementById('pp-title').textContent = `TAP #${deviceId} — Port ${portNum}`
+  const _dev = config.devices.find(d => d.id === deviceId)
+  const _dispId = (_dev && portNum > _dev.ports_1g) ? `q${portNum - _dev.ports_1g}` : `x${portNum}`
+  document.getElementById('pp-title').textContent = `TAP #${deviceId} — ${deviceId}/1/${_dispId}`
   document.getElementById('pp-label-input').value = pd.label || ''
 
   // Highlight active type btn
@@ -903,8 +987,157 @@ function loadFileObject(file) {
 // EXPORT / IMPORT  (공통 apply 함수 공유)
 // ════════════════════════════════════════════════
 function applyText(text, filename) {
-  if (filename.toLowerCase().endsWith('.json')) applyJSON(text)
-  else applyCSV(text)
+  const isGigamon = /^port\s+\d+\/\d+\/[xqc]\d+\s+type/m.test(text) || /^map\s+alias\s+/m.test(text)
+  if (filename?.toLowerCase().endsWith('.json') || (!isGigamon && text.trim().startsWith('{'))) {
+    applyJSON(text)
+  } else if (isGigamon) {
+    applyGigamonConfig(text)
+  } else {
+    applyCSV(text)
+  }
+}
+
+// ════════════════════════════════════════════════
+// GIGAMON CONFIG PARSER
+// ════════════════════════════════════════════════
+function parseGigamonConfig(text) {
+  const lines = text.split(/\r?\n/)
+  const portData = {}  // "1/1/x1" -> {type, label}
+  const rawMaps = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i].trim()
+
+    // port X/S/xN type network|tool|hybrid
+    let m = line.match(/^port\s+(\d+\/\d+\/[xqc]\d+)\s+type\s+(network|tool|hybrid)/i)
+    if (m) {
+      const pid = m[1]
+      const typeMap = {network:'N', tool:'T', hybrid:'H'}
+      if (!portData[pid]) portData[pid] = {type:'U', label:''}
+      portData[pid].type = typeMap[m[2].toLowerCase()]
+      i++; continue
+    }
+
+    // port X/S/xN alias NAME
+    m = line.match(/^port\s+(\d+\/\d+\/[xqc]\d+)\s+alias\s+(.+)/i)
+    if (m) {
+      const pid = m[1], label = m[2].trim()
+      if (!portData[pid]) portData[pid] = {type:'U', label:''}
+      portData[pid].label = label
+      i++; continue
+    }
+
+    // map alias NAME ... exit
+    m = line.match(/^map\s+alias\s+(.+)/i)
+    if (m) {
+      const mapObj = {name: m[1].trim(), mapType:'passAll', from:[], to:[], rules:[]}
+      i++
+      while (i < lines.length) {
+        const ml = lines[i].trim()
+        if (/^exit$/i.test(ml)) { i++; break }
+
+        let mm
+        mm = ml.match(/^type\s+regular\s+(byRule|passAll)/i)
+        if (mm) { mapObj.mapType = /byrule/i.test(mm[1]) ? 'rule' : 'passAll'; i++; continue }
+
+        mm = ml.match(/^from\s+(.+)/i)
+        if (mm) { mapObj.from = mm[1].trim().split(/\s+/); i++; continue }
+
+        mm = ml.match(/^to\s+(.+)/i)
+        if (mm) { mapObj.to = mm[1].trim().split(/\s+/); i++; continue }
+
+        mm = ml.match(/^rule\s+add\s+(.+)/i)
+        if (mm) { mapObj.rules.push(mm[1].trim()); i++; continue }
+
+        i++
+      }
+      rawMaps.push(mapObj)
+      continue
+    }
+
+    i++
+  }
+  return {portData, rawMaps}
+}
+
+function gigamonPortToInternal(portId, devices, forceDevice) {
+  const m = portId.match(/^(\d+)\/\d+\/([xqc])(\d+)$/i)
+  if (!m) return null
+  const deviceId = forceDevice || parseInt(m[1])
+  const dev = devices.find(d => d.id === deviceId)
+  if (!dev) return null
+  const portType = m[2].toLowerCase()
+  const portNum = parseInt(m[3])
+  const internal = portType === 'x' ? portNum : portType === 'q' ? dev.ports_1g + portNum : null
+  if (!internal || internal < 1 || internal > totalPorts(dev)) return null
+  return {deviceId, portNum: internal}
+}
+
+function applyGigamonConfig(text, forceDevice) {
+  const {portData, rawMaps} = parseGigamonConfig(text)
+
+  // Apply ports
+  for (const [portId, data] of Object.entries(portData)) {
+    const r = gigamonPortToInternal(portId, config.devices, forceDevice)
+    if (!r) continue
+    const dev = config.devices.find(d => d.id === r.deviceId)
+    if (!dev) continue
+    if (!dev.ports[String(r.portNum)]) dev.ports[String(r.portNum)] = {}
+    dev.ports[String(r.portNum)].type  = data.type
+    dev.ports[String(r.portNum)].label = data.label
+  }
+
+  // Convert maps
+  let idCounter = (config.maps.length ? Math.max(...config.maps.map(m=>m.id)) : 0) + 1
+  const newMaps = rawMaps.map(rm => {
+    const firstFrom = rm.from[0]
+    const dm = firstFrom?.match(/^(\d+)\//)
+    const deviceId = forceDevice || (dm ? parseInt(dm[1]) : 1)
+    const toPorts = ids => ids
+      .map(pid => gigamonPortToInternal(pid, config.devices, forceDevice))
+      .filter(r => r?.portNum)
+      .map(r => r.portNum)
+    return {
+      id: idCounter++,
+      name: rm.name,
+      device: deviceId,
+      src: toPorts(rm.from),
+      dst: toPorts(rm.to),
+      mapType: rm.mapType,
+      rules: rm.rules.join('\n')
+    }
+  })
+
+  if (newMaps.length) config.maps = newMaps
+  nextMapId = idCounter
+  activeMapId = null
+  render()
+}
+
+// ── Paste Modal ──────────────────────────────────
+function openPasteModal() {
+  document.getElementById('paste-overlay').classList.add('open')
+  setTimeout(() => document.getElementById('paste-textarea').focus(), 50)
+}
+function closePasteModal() {
+  document.getElementById('paste-overlay').classList.remove('open')
+}
+function closePasteIfBg(e) {
+  if (e.target === document.getElementById('paste-overlay')) closePasteModal()
+}
+function applyPasteConfig() {
+  const text = document.getElementById('paste-textarea').value.trim()
+  if (!text) { alert('컨피그를 붙여넣어주세요.'); return }
+  const sel = document.querySelector('input[name=devtarget]:checked')?.value
+  const forceDevice = (sel && sel !== 'auto') ? parseInt(sel) : null
+  try {
+    applyGigamonConfig(text, forceDevice)
+    closePasteModal()
+    document.getElementById('paste-textarea').value = ''
+  } catch(e) {
+    alert('파싱 오류: ' + e.message)
+  }
 }
 
 function applyJSON(text) {
