@@ -330,13 +330,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
   <div id="maps-panel">
     <div class="maps-header">
       <h2>MAP 설정 현황</h2>
-      <button class="btn btn-primary" onclick="openMapModal('add')">＋ MAP 추가</button>
+      <div style="display:flex;gap:6px;align-items:center">
+        <div id="map-dev-tabs" style="display:flex;gap:4px"></div>
+        <button class="btn btn-primary" onclick="openMapModal('add')">＋ MAP 추가</button>
+      </div>
     </div>
     <div class="map-table-wrap"><table class="map-table">
       <thead>
         <tr>
           <th>MAP 이름</th>
-          <th>장비</th>
           <th>Source 포트</th>
           <th>Destination 포트</th>
           <th>타입</th>
@@ -517,6 +519,7 @@ let ppState = null  // {deviceId, portNum}
 let modalMode = 'add'
 let editMapId = null
 let expandedMapRules = new Set()
+let activeMapDevice = 1
 const STORAGE_KEY = 'tap_config_v1'
 
 // MAP color palette for SVG lines
@@ -650,14 +653,26 @@ function renderDevices() {
   })
 }
 
+function renderMapDevTabs() {
+  const wrap = document.getElementById('map-dev-tabs')
+  if (!wrap) return
+  wrap.innerHTML = config.devices.map(d =>
+    `<button class="btn btn-sm${activeMapDevice === d.id ? ' btn-primary' : ''}"
+      onclick="activeMapDevice=${d.id};renderMapTable();renderSvg()"
+      style="min-width:64px">TAP #${d.id}</button>`
+  ).join('')
+}
+
 function renderMapTable() {
+  renderMapDevTabs()
   const tbody = document.getElementById('map-tbody')
   const noMsg = document.getElementById('no-maps-msg')
-  if (!config.maps.length) {
+  const devMaps = config.maps.filter(m => m.device === activeMapDevice)
+  if (!devMaps.length) {
     tbody.innerHTML = ''; noMsg.style.display = 'block'; return
   }
   noMsg.style.display = 'none'
-  tbody.innerHTML = config.maps.map((m, idx) => {
+  tbody.innerHTML = devMaps.map((m, idx) => {
     const color = MAP_COLORS[idx % MAP_COLORS.length]
     const isActive = m.id === activeMapId
     const dev = config.devices.find(d => d.id === m.device)
@@ -674,10 +689,9 @@ function renderMapTable() {
 
     return `<tr class="${isActive ? 'active-row' : ''}" onclick="selectMap(${m.id})">
       <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px"></span><strong>${m.name}</strong></td>
-      <td>TAP #${m.device}</td>
       <td style="font-family:monospace;font-size:11px">${formatPorts(m.src, dev)}</td>
       <td style="font-family:monospace;font-size:11px">${formatPorts(m.dst, dev)}</td>
-      <td><span class="badge badge-${m.mapType}">${m.mapType === 'passall' ? 'Pass All' : 'Rule'}</span></td>
+      <td><span class="badge badge-${m.mapType}">${m.mapType === 'passAll' ? 'Pass All' : m.mapType === 'rule' ? 'Rule' : m.mapType}</span></td>
       <td>${ruleCell}</td>
       <td>
         <div class="action-btns" onclick="event.stopPropagation()">
@@ -723,12 +737,13 @@ function renderLines() {
   const svg = document.getElementById('svg-lines')
   svg.innerHTML = ''
 
+  const devMapsAll = config.maps.filter(m => m.device === activeMapDevice)
   const mapsToShow = activeMapId
-    ? config.maps.filter(m => m.id === activeMapId)
-    : config.maps  // show all when none selected (dimmed)
+    ? devMapsAll.filter(m => m.id === activeMapId)
+    : devMapsAll
 
   mapsToShow.forEach((m, idx) => {
-    const colorIdx = config.maps.indexOf(m)
+    const colorIdx = devMapsAll.indexOf(m)
     const color = MAP_COLORS[colorIdx % MAP_COLORS.length]
     const isActive = m.id === activeMapId
     const opacity = activeMapId ? (isActive ? 1 : 0) : 0.25
@@ -1130,10 +1145,35 @@ function applyText(text, filename) {
 // ════════════════════════════════════════════════
 // GIGAMON CONFIG PARSER
 // ════════════════════════════════════════════════
+function expandPortList(str, gigastreams) {
+  // "1/1/x1..x3,1/1/x5,DDI" → individual port IDs
+  const result = []
+  for (const part of str.split(',').map(s => s.trim()).filter(Boolean)) {
+    const rangeM = part.match(/^(\d+\/\d+\/)([xqc])(\d+)\.\.([xqc]?)(\d+)$/i)
+    if (rangeM) {
+      const prefix = rangeM[1], t = rangeM[2].toLowerCase()
+      const start = parseInt(rangeM[3]), end = parseInt(rangeM[5])
+      for (let n = start; n <= end; n++) result.push(prefix + t + n)
+    } else if (gigastreams[part]) {
+      result.push(...gigastreams[part])
+    } else if (/^\d+\/\d+\/[xqc]\d+$/i.test(part)) {
+      result.push(part)
+    }
+    // skip non-port tokens (e.g. role names, comments)
+  }
+  return result
+}
+
+function parsePortListField(val, gigastreams) {
+  // handles both comma-separated and space-separated lists, plus ranges
+  return expandPortList(val.replace(/\s+/g, ','), gigastreams)
+}
+
 function parseGigamonConfig(text) {
   const lines = text.split(/\r?\n/)
-  const portData = {}  // "1/1/x1" -> {type, label}
+  const portData = {}
   const rawMaps = []
+  const gigastreams = {}
   let i = 0
 
   while (i < lines.length) {
@@ -1158,11 +1198,28 @@ function parseGigamonConfig(text) {
       i++; continue
     }
 
+    // gigastream alias NAME ... exit
+    m = line.match(/^gigastream\s+alias\s+(.+)/i)
+    if (m) {
+      const gsName = m[1].trim()
+      const ports = []
+      i++
+      while (i < lines.length) {
+        const gl = lines[i].trim()
+        if (/^exit$/i.test(gl)) { i++; break }
+        const pm = gl.match(/^port-list\s+(.+?)(?:\s+params.*)?$/i)
+        if (pm) ports.push(...expandPortList(pm[1].trim(), {}))
+        i++
+      }
+      gigastreams[gsName] = ports
+      continue
+    }
+
     // map alias / map-passall alias / map-scollector alias ... exit
     m = line.match(/^(map(?:-passall|-scollector)?)\s+alias\s+(.+)/i)
     if (m) {
       const keyword = m[1].toLowerCase()
-      const mapObj = {name: m[2].trim(), mapType: keyword === 'map' ? 'passAll' : 'passAll', from:[], to:[], rules:[]}
+      const mapObj = {name: m[2].trim(), mapType:'passAll', from:[], to:[], rules:[]}
       i++
       while (i < lines.length) {
         const ml = lines[i].trim()
@@ -1173,13 +1230,16 @@ function parseGigamonConfig(text) {
         if (mm) { mapObj.mapType = 'rule'; i++; continue }
 
         mm = ml.match(/^type\s+/i)
-        if (mm) { mapObj.mapType = 'passAll'; i++; continue }
+        if (mm) { i++; continue }
 
         mm = ml.match(/^from\s+(.+)/i)
-        if (mm) { mapObj.from = mm[1].trim().split(/\s+/); i++; continue }
+        if (mm) { mapObj.from = parsePortListField(mm[1].trim(), gigastreams); i++; continue }
 
         mm = ml.match(/^to\s+(.+)/i)
-        if (mm) { mapObj.to = mm[1].trim().split(/\s+/); i++; continue }
+        if (mm) { mapObj.to = parsePortListField(mm[1].trim(), gigastreams); i++; continue }
+
+        mm = ml.match(/^collector\s+(.+)/i)
+        if (mm) { mapObj.to = parsePortListField(mm[1].trim(), gigastreams); i++; continue }
 
         mm = ml.match(/^rule\s+add\s+(.+)/i)
         if (mm) { mapObj.rules.push(mm[1].trim()); i++; continue }
@@ -1243,7 +1303,11 @@ function applyGigamonConfig(text, forceDevice) {
     }
   })
 
-  if (newMaps.length) config.maps = newMaps
+  if (newMaps.length) {
+    const targetDevice = forceDevice || newMaps[0]?.device
+    config.maps = config.maps.filter(m => m.device !== targetDevice).concat(newMaps)
+    activeMapDevice = targetDevice
+  }
   nextMapId = idCounter
   activeMapId = null
   render()
