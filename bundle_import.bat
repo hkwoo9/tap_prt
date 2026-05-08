@@ -44,10 +44,10 @@ if not exist "tap_prt\" goto NO_REPO
 
 echo [업데이트] 변경분 적용 중...
 cd tap_prt
-git fetch ..\tap_prt_update.bundle main:main
+git fetch ..\tap_prt_update.bundle main
 if %errorlevel% neq 0 goto ERROR
 
-git checkout main
+git reset --hard FETCH_HEAD
 cd ..
 del tap_prt_update.bundle
 
