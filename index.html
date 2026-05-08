@@ -136,6 +136,36 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 /* ── SVG overlay ── */
 #svg-lines{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:100}
 
+/* ── File Auto-Sync Bar ── */
+#file-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-bottom:14px;padding:10px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px}
+.file-indicator{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.file-dot{width:9px;height:9px;border-radius:50%;background:#334155;flex-shrink:0;transition:background .3s}
+.file-dot.connected{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.file-dot.loading{background:#f59e0b;animation:fdpulse .7s infinite}
+.file-dot.error{background:#ef4444}
+@keyframes fdpulse{0%,100%{opacity:1}50%{opacity:.3}}
+#file-name-label{font-size:12px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#file-name-label.active{color:#e2e8f0}
+#last-update-label{font-size:11px;color:#475569;white-space:nowrap}
+.auto-label{font-size:12px;color:#94a3b8;white-space:nowrap}
+.toggle-sw{width:32px;height:18px;background:#334155;border-radius:9px;position:relative;
+  cursor:pointer;transition:background .2s;flex-shrink:0}
+.toggle-sw.on{background:#15803d}
+.toggle-sw::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;
+  background:#fff;border-radius:50%;transition:transform .2s;pointer-events:none}
+.toggle-sw.on::after{transform:translateX(14px)}
+.file-controls{display:flex;align-items:center;gap:6px}
+
+/* ── Drag Overlay ── */
+#drag-overlay{position:fixed;inset:0;background:rgba(29,78,216,.12);border:3px dashed #3b82f6;
+  z-index:500;display:none;align-items:center;justify-content:center;pointer-events:none}
+#drag-overlay.show{display:flex}
+.drag-msg{background:#1e293b;border:1px solid #3b82f6;border-radius:14px;
+  padding:28px 48px;text-align:center}
+.drag-msg p{font-size:20px;color:#60a5fa;margin-bottom:6px}
+.drag-msg span{font-size:13px;color:#64748b}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:#1e293b}
@@ -145,6 +175,14 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
 <body>
 
 <svg id="svg-lines"></svg>
+
+<!-- Drag & Drop overlay -->
+<div id="drag-overlay">
+  <div class="drag-msg">
+    <p>📄 파일을 여기에 놓으세요</p>
+    <span>.json 또는 .csv (Excel 저장 파일)</span>
+  </div>
+</div>
 
 <div id="app">
   <!-- Header -->
@@ -156,6 +194,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f
       <div class="sep"></div>
       <button class="btn btn-success" onclick="exportCSV()">📊 Excel 내보내기</button>
       <label class="btn" style="cursor:pointer">📊 Excel 가져오기<input type="file" accept=".csv,.txt" onchange="importCSV(event)" style="display:none"></label>
+    </div>
+  </div>
+
+  <!-- File auto-sync bar -->
+  <div id="file-bar">
+    <div class="file-indicator">
+      <div class="file-dot" id="file-dot"></div>
+      <span id="file-name-label">연결된 파일 없음 — 📎 파일 연결 버튼으로 tap_config.csv 또는 .json 선택</span>
+    </div>
+    <span id="last-update-label"></span>
+    <div class="file-controls">
+      <span class="auto-label">자동 반영</span>
+      <div class="toggle-sw" id="auto-toggle-sw" onclick="toggleAutoReload()" title="ON 시 3초마다 파일 변경 감지"></div>
+      <button class="btn btn-sm" id="reload-btn" onclick="reloadFromFile()" style="display:none" title="지금 파일 다시 읽기">⟳ 확인</button>
+      <button class="btn btn-sm btn-primary" onclick="connectFile()">📎 파일 연결</button>
     </div>
   </div>
 
@@ -739,34 +792,186 @@ function deleteMap(id) {
 }
 
 // ════════════════════════════════════════════════
-// EXPORT / IMPORT
+// FILE AUTO-SYNC (File System Access API)
 // ════════════════════════════════════════════════
-function exportJSON() {
-  const blob = new Blob([JSON.stringify(config, null, 2)], {type:'application/json'})
-  download(blob, 'tap_config.json')
+let fileHandle = null
+let autoReloadEnabled = false
+let autoReloadTimer = null
+let lastFileContent = null
+
+async function connectFile() {
+  // File System Access API 미지원 브라우저는 일반 파일 입력으로 폴백
+  if (!('showOpenFilePicker' in window)) {
+    const inp = document.createElement('input')
+    inp.type = 'file'; inp.accept = '.json,.csv'
+    inp.onchange = e => { const f = e.target.files[0]; if (f) loadFileObject(f) }
+    inp.click(); return
+  }
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      types: [{
+        description: 'TAP 설정 파일',
+        accept: {'application/json':['.json'], 'text/csv':['.csv'], 'text/plain':['.csv']}
+      }]
+    })
+    fileHandle = handle
+    lastFileContent = null  // force initial load
+    await reloadFromFile()
+    if (autoReloadEnabled) startAutoReload()
+  } catch(e) {
+    if (e.name !== 'AbortError') alert('파일 열기 실패: ' + e.message)
+  }
 }
 
+async function reloadFromFile() {
+  if (!fileHandle) return
+  setFileDot('loading')
+  try {
+    const file = await fileHandle.getFile()
+    const text = await file.text()
+    if (text === lastFileContent) { setFileDot('connected'); return }
+    lastFileContent = text
+    applyText(text, file.name)
+    updateFileBar(file.name)
+    setFileDot('connected')
+  } catch(e) {
+    setFileDot('error')
+    console.error('파일 읽기 실패:', e)
+  }
+}
+
+function toggleAutoReload() {
+  if (!fileHandle) {
+    alert('먼저 📎 파일 연결 버튼으로 파일을 선택해주세요.')
+    return
+  }
+  autoReloadEnabled = !autoReloadEnabled
+  document.getElementById('auto-toggle-sw').classList.toggle('on', autoReloadEnabled)
+  autoReloadEnabled ? startAutoReload() : stopAutoReload()
+}
+
+function startAutoReload() {
+  stopAutoReload()
+  autoReloadTimer = setInterval(reloadFromFile, 3000)
+}
+function stopAutoReload() {
+  if (autoReloadTimer) { clearInterval(autoReloadTimer); autoReloadTimer = null }
+}
+
+function updateFileBar(filename) {
+  document.getElementById('file-name-label').textContent = filename || fileHandle?.name || ''
+  document.getElementById('file-name-label').classList.add('active')
+  document.getElementById('reload-btn').style.display = ''
+  if (filename) {
+    document.getElementById('last-update-label').textContent =
+      '업데이트: ' + new Date().toLocaleTimeString('ko-KR')
+  }
+}
+function setFileDot(state) {
+  const dot = document.getElementById('file-dot')
+  dot.className = 'file-dot' + (state === 'connected' ? ' connected' : state === 'loading' ? ' loading' : state === 'error' ? ' error' : '')
+}
+
+// ── Drag & Drop ──────────────────────────────────
+let dragDepth = 0
+document.addEventListener('dragenter', e => {
+  if (!e.dataTransfer.types.includes('Files')) return
+  if (++dragDepth === 1) document.getElementById('drag-overlay').classList.add('show')
+})
+document.addEventListener('dragleave', () => {
+  if (--dragDepth <= 0) { dragDepth = 0; document.getElementById('drag-overlay').classList.remove('show') }
+})
+document.addEventListener('dragover', e => e.preventDefault())
+document.addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0
+  document.getElementById('drag-overlay').classList.remove('show')
+  const file = e.dataTransfer.files[0]
+  if (file) loadFileObject(file)
+})
+
+function loadFileObject(file) {
+  const reader = new FileReader()
+  reader.onload = ev => {
+    applyText(ev.target.result, file.name)
+    updateFileBar(file.name)
+    setFileDot('connected')
+  }
+  reader.readAsText(file)
+}
+
+// ════════════════════════════════════════════════
+// EXPORT / IMPORT  (공통 apply 함수 공유)
+// ════════════════════════════════════════════════
+function applyText(text, filename) {
+  if (filename.toLowerCase().endsWith('.json')) applyJSON(text)
+  else applyCSV(text)
+}
+
+function applyJSON(text) {
+  const loaded = JSON.parse(text)
+  if (!loaded.devices || !loaded.maps) throw new Error('devices, maps 필드가 필요합니다')
+  config = loaded
+  nextMapId = Math.max(...config.maps.map(m => m.id), 0) + 1
+  activeMapId = null
+  render()
+}
+
+function applyCSV(text) {
+  const stripped = text.replace(/^﻿/, '')
+  const lines = stripped.split(/\r?\n/)
+  let section = null
+  const newMaps = []
+
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line || line.startsWith('device,') || line.startsWith('id,')) continue
+    if (line === '## PORTS') { section = 'ports'; continue }
+    if (line === '## MAPS')  { section = 'maps';  continue }
+
+    const cols = parseCSVRow(line)
+
+    if (section === 'ports' && cols.length >= 4) {
+      const [dId, pNum,, type, label] = cols
+      const devId = parseInt(dId), portNum = parseInt(pNum)
+      const dev = config.devices.find(d => d.id === devId)
+      if (dev && portNum >= 1 && portNum <= totalPorts(dev)) {
+        if (!dev.ports[String(portNum)]) dev.ports[String(portNum)] = {}
+        dev.ports[String(portNum)].type  = ['N','T','H','U'].includes(type) ? type : 'U'
+        dev.ports[String(portNum)].label = label || ''
+      }
+    }
+
+    if (section === 'maps' && cols.length >= 6) {
+      const [id, name, device, srcStr, dstStr, mapType, rules] = cols
+      newMaps.push({
+        id: parseInt(id), name, device: parseInt(device),
+        src: parsePorts(srcStr), dst: parsePorts(dstStr),
+        mapType, rules: rules || ''
+      })
+    }
+  }
+
+  if (newMaps.length) config.maps = newMaps
+  nextMapId = Math.max(...config.maps.map(m => m.id), 0) + 1
+  activeMapId = null
+  render()
+}
+
+function exportJSON() {
+  download(new Blob([JSON.stringify(config, null, 2)], {type:'application/json'}), 'tap_config.json')
+}
 function importJSON(event) {
   const file = event.target.files[0]; if (!file) return
   const reader = new FileReader()
   reader.onload = e => {
-    try {
-      const loaded = JSON.parse(e.target.result)
-      if (!loaded.devices || !loaded.maps) throw new Error('형식 오류')
-      config = loaded
-      nextMapId = Math.max(...config.maps.map(m => m.id), 0) + 1
-      activeMapId = null
-      render()
-      alert('불러오기 완료!')
-    } catch(err) { alert('JSON 파일 형식이 올바르지 않습니다.\n' + err.message) }
+    try { applyJSON(e.target.result); alert('불러오기 완료!') }
+    catch(err) { alert('JSON 형식 오류: ' + err.message) }
   }
-  reader.readAsText(file)
-  event.target.value = ''
+  reader.readAsText(file); event.target.value = ''
 }
 
 function exportCSV() {
-  let csv = '## PORTS\n'
-  csv += 'device,port,speed,type,label\n'
+  let csv = '## PORTS\ndevice,port,speed,type,label\n'
   config.devices.forEach(dev => {
     for (let p = 1; p <= totalPorts(dev); p++) {
       const speed = p <= dev.ports_1g ? '1/10G' : '40G'
@@ -774,67 +979,20 @@ function exportCSV() {
       csv += `${dev.id},${p},${speed},${pd.type},"${pd.label || ''}"\n`
     }
   })
-  csv += '\n## MAPS\n'
-  csv += 'id,name,device,src_ports,dst_ports,map_type,rules\n'
+  csv += '\n## MAPS\nid,name,device,src_ports,dst_ports,map_type,rules\n'
   config.maps.forEach(m => {
     csv += `${m.id},${m.name},${m.device},"${m.src.join(',')}","${m.dst.join(',')}",${m.mapType},"${m.rules || ''}"\n`
   })
-  const blob = new Blob(['﻿' + csv], {type:'text/csv;charset=utf-8'})  // BOM for Excel
-  download(blob, 'tap_config.csv')
+  download(new Blob(['﻿' + csv], {type:'text/csv;charset=utf-8'}), 'tap_config.csv')
 }
-
 function importCSV(event) {
   const file = event.target.files[0]; if (!file) return
   const reader = new FileReader()
   reader.onload = e => {
-    try {
-      const text = e.target.result.replace(/^﻿/,'')  // strip BOM
-      const lines = text.split(/\r?\n/)
-      let section = null
-      let portCount = 0, mapCount = 0
-
-      for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i].trim()
-        if (!raw || raw.startsWith('device,') || raw.startsWith('id,')) continue
-        if (raw === '## PORTS') { section = 'ports'; continue }
-        if (raw === '## MAPS') { section = 'maps'; continue }
-
-        const cols = parseCSVRow(raw)
-
-        if (section === 'ports' && cols.length >= 4) {
-          const [dId,pNum,,type,label] = cols
-          const devId = parseInt(dId), portNum = parseInt(pNum)
-          const dev = config.devices.find(d => d.id === devId)
-          if (dev && portNum >= 1 && portNum <= totalPorts(dev)) {
-            if (!dev.ports[String(portNum)]) dev.ports[String(portNum)] = {}
-            dev.ports[String(portNum)].type = ['N','T','H','U'].includes(type) ? type : 'U'
-            dev.ports[String(portNum)].label = label || ''
-            portCount++
-          }
-        }
-
-        if (section === 'maps' && cols.length >= 6) {
-          const [id,name,device,srcStr,dstStr,mapType,rules] = cols
-          const mId = parseInt(id)
-          const src = parsePorts(srcStr), dst = parsePorts(dstStr)
-          const existing = config.maps.find(m => m.id === mId)
-          if (existing) {
-            Object.assign(existing, {name, device:parseInt(device), src, dst, mapType, rules: rules||''})
-          } else {
-            config.maps.push({id:mId, name, device:parseInt(device), src, dst, mapType, rules: rules||''})
-          }
-          mapCount++
-        }
-      }
-
-      nextMapId = Math.max(...config.maps.map(m=>m.id), 0) + 1
-      activeMapId = null
-      render()
-      alert(`가져오기 완료!\n포트: ${portCount}개, MAP: ${mapCount}개 업데이트`)
-    } catch(err) { alert('CSV 파싱 오류: ' + err.message) }
+    try { applyCSV(e.target.result); alert('가져오기 완료!') }
+    catch(err) { alert('CSV 파싱 오류: ' + err.message) }
   }
-  reader.readAsText(file)
-  event.target.value = ''
+  reader.readAsText(file); event.target.value = ''
 }
 
 function parseCSVRow(line) {
