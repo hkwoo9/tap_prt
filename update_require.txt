@@ -6,3 +6,36 @@
  >> TAP IP는 웹에서 입력하는 식으로다가
 4) 위에 뭐 포트 전체 개수를 표현하다기 보다는 전체 포트 개수는 몇개고 안쓰는 유휴 표트는 몇개이며 , 잔여 Rule 개수는 몇개이다 이런게 나오면 좋을듯
 참고로 Rule은 TAP 장비당 256개가 Max임.
+
+
+======2026.05.08 15:43 추가======
+
+1) Source / Destination Port가 제대로 인식이 안됨 (여러개 일 때 그런 것 같음)
+참고로 1/1/x1 이 아니라 DD 이런식으로 gigastream 한것들이 있음 
+그거는 컨피그에서 아래 내용 참고해야함.
+
+[예시]
+## Gigastream configurations
+##
+gigastream alias DDI
+  port-list 1/1/x6,1/1/x8,1/1/x14..x15 params hash advanced
+  exit
+gigastream alias GWIDS1
+  port-list 1/1/x4,1/1/x7,1/1/x19,1/1/x20,1/1/x31,1/1/x32 params hash advanced
+  exit
+
+map-passall alias test
+  roles replace admin to owner_roles
+  comment testT
+  to 1/1/q3
+  from 1/1/x1..x3,1/1/x5,1/1/x9..x12,1/1/x21..x25,1/1/x33,1/1/x35..x38,1/1/x44..x48
+  exit
+map-scollector alias test
+  roles replace admin to owner_roles
+  comment test
+  from 1/1/x16
+  collector 1/1/x40
+  exit
+
+2) 마지막 SSH연결한 MAP만 보임 TAP#1 을 클릭하면 tap#1의 맵이 나오고 tap#2 클릭하면 tap#2가 나왔으면 좋겠음.
+이 문제와 더불어 ssh 연결로 tap#1을 하고 tap#2를 연결하면 tap#1의 데이터가 날아가는것으로 보임(포트 정보는 남아있지만 MAP이랑 위에 포트 현황이 초기화됨)
