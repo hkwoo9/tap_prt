@@ -1,0 +1,22 @@
+Gigamon TAP  도식화를 하고싶음. 아래 내용을 읽고 나에게 어떤 방향이 좋을지 제안하고 어떤식으로 나올지 간략하게 이미지로 보여줬으면 좋겠음.
+Gigamon TAP은 총 2대
+
+1번 장비 : 1/10G 포트 48개 40G 포트 4개
+2번 장비 : 1/10G 포트 48개 40G 포트 8개
+
+포트 종류 : Network / Tool / Hybrid
+Network : 트래픽 인입 포트
+Tool : 트래픽 전달 포트
+Hybrid : 가상화 포트
+
+
+MAP 존재
+MAP이란? 
+Network > Tool or Hybrid
+Hybrid > Tool 포트로 전송하는 설정이고
+Pass all (No rule) 이 있고
+Rule 이 있음 (IP / Port 등으로 Filter)
+
+
+1) 위 포트 정보/MAP 등의 수정이 쉬웠으면 좋겠음. (엑셀 관리도 가능해.)
+2) 어떤식으로 하는게 가장 깔끔하게 볼 수 있을지에 대한 고민
