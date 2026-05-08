@@ -1,0 +1,22 @@
+port 1/1/q4 type hybrid
+port 1/1/q4 alias test
+port 1/1/q4 params admin enable
+port 1/1/x1 type network
+port 1/1/x1 alias test
+port 1/1/x1 params admin enable
+port 1/1/x1 ingress-vlan-tag 100
+
+map alias test
+  type regular byRule
+  roles replace admin to owner_roles
+  comment " "
+  rule add pass ipsrc 1.1.0.0 255.255.0.0 protocol tcp
+  rule add pass ipsrc 1.2.0.0 255.255.0.0 protocol tcp
+  rule add pass ipsrc 1.3.0.0 255.255.128.0 protocol tcp
+  rule add pass ipsrc 1.4.0.0 255.255.0.0 protocol tcp
+  rule add pass ipsrc 1.4.97.0 255.255.255.0 protocol tcp
+  rule add pass ipsrc 1.5.99.0 255.255.255.0 protocol tcp
+  rule add pass ipsrc 1.6.7.0 255.255.255.0 protocol tcp
+  to 1/1/x41
+  from 1/1/x17
+  exit
