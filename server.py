@@ -10,7 +10,9 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 
 @app.route('/')
 def index():
-    return send_from_directory(BASE, 'index.html')
+    res = send_from_directory(BASE, 'index.html')
+    res.headers['Cache-Control'] = 'no-store'
+    return res
 
 @app.route('/api/fetch-config', methods=['POST'])
 def fetch_config():
