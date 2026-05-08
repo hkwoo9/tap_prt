@@ -22,15 +22,30 @@ def fetch_config():
     if not host or not username:
         return jsonify({'error': 'IP와 사용자명은 필수입니다.'}), 400
     try:
-        import paramiko
+        import paramiko, time
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(host, port=port, username=username, password=password,
                        timeout=15, look_for_keys=False, allow_agent=False)
-        _, stdout, _ = client.exec_command('show running-config')
-        output = stdout.read().decode('utf-8', errors='replace')
+
+        shell = client.invoke_shell(width=512, height=50)
+        time.sleep(1)
+        shell.recv(65535)          # discard login banner
+
+        shell.send('en\n')
+        time.sleep(1)
+        shell.recv(65535)          # discard enable prompt/response
+
+        shell.send('show running-config\n')
+        time.sleep(3)
+
+        chunks = []
+        while shell.recv_ready():
+            chunks.append(shell.recv(65535).decode('utf-8', errors='replace'))
+            time.sleep(0.3)
+
         client.close()
-        return jsonify({'config': output})
+        return jsonify({'config': ''.join(chunks)})
     except ImportError:
         return jsonify({'error': 'paramiko 미설치: pip install paramiko'}), 500
     except Exception as e:
